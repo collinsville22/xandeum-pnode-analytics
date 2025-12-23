@@ -1,0 +1,275 @@
+'use client';
+
+import { useState, useMemo } from 'react';
+import Link from 'next/link';
+import { Search, ArrowUpDown, ExternalLink, Copy, Check } from 'lucide-react';
+import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
+import { Badge } from '@/components/ui/badge';
+import { Skeleton } from '@/components/ui/skeleton';
+import { usePNodes } from '@/hooks/usePNodes';
+import { truncateAddress, formatBytes, timeSince, cn } from '@/lib/utils';
+import type { PNodeData, PNodeStatus } from '@/types/pnode';
+
+type SortField = 'pubkey' | 'status' | 'storage' | 'lastSeen';
+type SortDirection = 'asc' | 'desc';
+
+const statusVariant: Record<PNodeStatus, 'success' | 'warning' | 'danger' | 'default'> = {
+  active: 'success',
+  inactive: 'warning',
+  delinquent: 'danger',
+  unknown: 'default',
+};
+
+function CopyButton({ value }: { value: string }) {
+  const [copied, setCopied] = useState(false);
+
+  const handleCopy = async () => {
+    await navigator.clipboard.writeText(value);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
+
+  return (
+    <button
+      onClick={handleCopy}
+      className="rounded p-1 text-zinc-500 transition-colors hover:bg-zinc-800 hover:text-zinc-300"
+    >
+      {copied ? <Check className="h-3.5 w-3.5 text-green-500" /> : <Copy className="h-3.5 w-3.5" />}
+    </button>
+  );
+}
+
+function TableSkeleton() {
+  return (
+    <div className="space-y-3">
+      {Array.from({ length: 5 }).map((_, i) => (
+        <div key={i} className="flex items-center gap-4 rounded-lg bg-zinc-800/50 p-4">
+          <Skeleton className="h-10 w-10 rounded-full" />
+          <div className="flex-1 space-y-2">
+            <Skeleton className="h-4 w-48" />
+            <Skeleton className="h-3 w-32" />
+          </div>
+          <Skeleton className="h-6 w-16 rounded-full" />
+        </div>
+      ))}
+    </div>
+  );
+}
+
+export function PNodeTable() {
+  const { data, isLoading, error } = usePNodes();
+  const [search, setSearch] = useState('');
+  const [sortField, setSortField] = useState<SortField>('status');
+  const [sortDirection, setSortDirection] = useState<SortDirection>('asc');
+
+  const handleSort = (field: SortField) => {
+    if (sortField === field) {
+      setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc');
+    } else {
+      setSortField(field);
+      setSortDirection('asc');
+    }
+  };
+
+  const filteredAndSorted = useMemo(() => {
+    if (!data?.data) return [];
+
+    let result = data.data.filter(
+      (pnode) =>
+        pnode.pubkey.toLowerCase().includes(search.toLowerCase()) ||
+        pnode.owner.toLowerCase().includes(search.toLowerCase())
+    );
+
+    result.sort((a, b) => {
+      let comparison = 0;
+
+      switch (sortField) {
+        case 'pubkey':
+          comparison = a.pubkey.localeCompare(b.pubkey);
+          break;
+        case 'status':
+          const statusOrder: Record<PNodeStatus, number> = { active: 0, inactive: 1, delinquent: 2, unknown: 3 };
+          comparison = statusOrder[a.status] - statusOrder[b.status];
+          break;
+        case 'storage':
+          comparison = (a.metadata?.dedicatedStorage || 0) - (b.metadata?.dedicatedStorage || 0);
+          break;
+        case 'lastSeen':
+          comparison = (a.metadata?.lastSeen || 0) - (b.metadata?.lastSeen || 0);
+          break;
+      }
+
+      return sortDirection === 'asc' ? comparison : -comparison;
+    });
+
+    return result;
+  }, [data?.data, search, sortField, sortDirection]);
+
+  if (isLoading) {
+    return (
+      <Card>
+        <CardHeader>
+          <CardTitle>pNode Explorer</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <TableSkeleton />
+        </CardContent>
+      </Card>
+    );
+  }
+
+  if (error || !data?.success) {
+    return (
+      <Card>
+        <CardHeader>
+          <CardTitle>pNode Explorer</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="rounded-lg border border-red-500/20 bg-red-500/10 p-4 text-center text-red-400">
+            Failed to load pNode data
+          </div>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  return (
+    <Card>
+      <CardHeader className="flex flex-row items-center justify-between">
+        <CardTitle>pNode Explorer</CardTitle>
+        <div className="relative">
+          <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-500" />
+          <input
+            type="text"
+            placeholder="Search by address..."
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            className="h-9 rounded-lg border border-zinc-800 bg-zinc-900 pl-9 pr-4 text-sm text-white placeholder-zinc-500 focus:border-violet-500 focus:outline-none focus:ring-1 focus:ring-violet-500"
+          />
+        </div>
+      </CardHeader>
+      <CardContent>
+        <div className="overflow-x-auto">
+          <table className="w-full">
+            <thead>
+              <tr className="border-b border-zinc-800">
+                <th className="pb-3 text-left text-xs font-medium uppercase tracking-wider text-zinc-500">
+                  <button
+                    onClick={() => handleSort('pubkey')}
+                    className="flex items-center gap-1 hover:text-zinc-300"
+                  >
+                    pNode Address
+                    <ArrowUpDown className="h-3 w-3" />
+                  </button>
+                </th>
+                <th className="pb-3 text-left text-xs font-medium uppercase tracking-wider text-zinc-500">
+                  Owner
+                </th>
+                <th className="pb-3 text-left text-xs font-medium uppercase tracking-wider text-zinc-500">
+                  <button
+                    onClick={() => handleSort('status')}
+                    className="flex items-center gap-1 hover:text-zinc-300"
+                  >
+                    Status
+                    <ArrowUpDown className="h-3 w-3" />
+                  </button>
+                </th>
+                <th className="pb-3 text-left text-xs font-medium uppercase tracking-wider text-zinc-500">
+                  <button
+                    onClick={() => handleSort('storage')}
+                    className="flex items-center gap-1 hover:text-zinc-300"
+                  >
+                    Storage
+                    <ArrowUpDown className="h-3 w-3" />
+                  </button>
+                </th>
+                <th className="pb-3 text-left text-xs font-medium uppercase tracking-wider text-zinc-500">
+                  <button
+                    onClick={() => handleSort('lastSeen')}
+                    className="flex items-center gap-1 hover:text-zinc-300"
+                  >
+                    Last Active
+                    <ArrowUpDown className="h-3 w-3" />
+                  </button>
+                </th>
+                <th className="pb-3 text-right text-xs font-medium uppercase tracking-wider text-zinc-500">
+                  Actions
+                </th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-zinc-800">
+              {filteredAndSorted.length === 0 ? (
+                <tr>
+                  <td colSpan={6} className="py-8 text-center text-zinc-500">
+                    No pNodes found
+                  </td>
+                </tr>
+              ) : (
+                filteredAndSorted.map((pnode) => (
+                  <PNodeRow key={pnode.pubkey} pnode={pnode} />
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
+        <div className="mt-4 text-center text-sm text-zinc-500">
+          Showing {filteredAndSorted.length} of {data.count} pNodes
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+function PNodeRow({ pnode }: { pnode: PNodeData }) {
+  return (
+    <tr className="group transition-colors hover:bg-zinc-800/50">
+      <td className="py-4">
+        <div className="flex items-center gap-2">
+          <code className="font-mono text-sm text-white">
+            {truncateAddress(pnode.pubkey, 6)}
+          </code>
+          <CopyButton value={pnode.pubkey} />
+        </div>
+      </td>
+      <td className="py-4">
+        {pnode.owner ? (
+          <div className="flex items-center gap-2">
+            <code className="font-mono text-sm text-zinc-400">
+              {truncateAddress(pnode.owner, 4)}
+            </code>
+            <CopyButton value={pnode.owner} />
+          </div>
+        ) : (
+          <span className="text-sm text-zinc-600">—</span>
+        )}
+      </td>
+      <td className="py-4">
+        <Badge variant={statusVariant[pnode.status]}>
+          {pnode.status}
+        </Badge>
+      </td>
+      <td className="py-4 text-sm text-zinc-400">
+        {pnode.metadata?.dedicatedStorage
+          ? formatBytes(pnode.metadata.dedicatedStorage)
+          : '—'}
+      </td>
+      <td className="py-4 text-sm text-zinc-400">
+        {pnode.metadata?.lastSeen
+          ? timeSince(pnode.metadata.lastSeen)
+          : '—'}
+      </td>
+      <td className="py-4 text-right">
+        <Link
+          href={`/pnode/${pnode.pubkey}`}
+          className={cn(
+            'inline-flex items-center gap-1 rounded-lg px-3 py-1.5 text-sm font-medium',
+            'text-violet-400 transition-colors hover:bg-violet-500/10'
+          )}
+        >
+          Details
+          <ExternalLink className="h-3 w-3" />
+        </Link>
+      </td>
+    </tr>
+  );
+}
