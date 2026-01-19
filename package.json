@@ -18,7 +18,7 @@
     "@tanstack/react-query": "^5.90.12",
     "clsx": "^2.1.1",
     "lucide-react": "^0.556.0",
-    "next": "16.0.8",
+    "next": "16.0.10",
     "react": "19.2.1",
     "react-dom": "19.2.1",
     "react-simple-maps": "^3.0.0",
